@@ -43,7 +43,7 @@ Parameters:
   EKSClusterVersion:
     Description: EKS Cluster Version
     Type: String
-    Default: 1.27
+    Default: 1.28
     ConstraintDescription: Must be a valid eks version
   EKSClusterName:
     Description: EKS Cluster Name
@@ -63,6 +63,11 @@ Parameters:
   
   ParticipantRoleName:
     Description: "Name of the Team Role"
+    Default: NONE
+    Type: String
+
+  eksBlueprint:
+    Description: "S3 Bucket location for EKS blueprint"
     Default: NONE
     Type: String
 
@@ -129,6 +134,7 @@ Resources:
             - ec2:AssociateIamInstanceProfile
             - ec2:ModifyInstanceAttribute
             - ec2:ReplaceIamInstanceProfileAssociation
+            - ec2:RebootInstances
             - iam:ListInstanceProfiles
             - iam:PassRole
             Resource: "*"
@@ -186,6 +192,21 @@ Resources:
           # logging.basicConfig(level=logging.INFO)
           # logger = logging.getLogger(__name__)
 
+          def restart_instance(instance_id):
+              #logger.info('Restart EC2 instance to restart SSM Agent')
+              ec2 = boto3.client('ec2')
+
+              try:
+                  response = ec2.reboot_instances(
+                      InstanceIds=[
+                          instance_id
+                      ]
+                  )
+              except Exception as e:
+                  raise e
+
+              #logger.info('response: %s', response)
+
           def lambda_handler(event, context):
               # logger.info('event: {}'.format(event))
               # logger.info('context: {}'.format(context))
@@ -218,6 +239,7 @@ Resources:
                       # attach instance profile
                       response = ec2.associate_iam_instance_profile(IamInstanceProfile=iam_instance_profile, InstanceId=instance['InstanceId'])
                       # logger.info('response - associate_iam_instance_profile: {}'.format(response))
+                      restart_instance(instance['InstanceId'])
                       r_ec2 = boto3.resource('ec2')
 
                       responseData = {'Success': 'Started bootstrapping for instance: '+instance['InstanceId']}
@@ -288,7 +310,7 @@ Resources:
             - sudo yum -y install terraform-1.5.5
             - echo '=== Create EKS Cluster ==='
             - sudo -H -u ec2-user mkdir -p /home/ec2-user/environment/eksworkshop/
-            - sudo -H -u ec2-user curl --silent --location -o /home/ec2-user/environment/eksworkshop/main.tf "https://raw.githubusercontent.com/awslabs/ec2-spot-workshops/master/content/karpenter/010_prerequisites/prerequisites.files/eks-blueprints.tf"
+            - !Sub sudo -H -u ec2-user aws s3 cp ${eksBlueprint} /home/ec2-user/environment/eksworkshop/main.tf
             - !Sub sed -i.bak -e 's/--AWS_REGION--/${AWS::Region}/' /home/ec2-user/environment/eksworkshop/main.tf
             - !Sub sed -i.bak -e 's/--EKS_VERSION--/${EKSClusterVersion}/' /home/ec2-user/environment/eksworkshop/main.tf              
             - !Sub sed -i.bak -e 's/--AWS_ACCOUNT_ID--/${AWS::AccountId}/' /home/ec2-user/environment/eksworkshop/main.tf
